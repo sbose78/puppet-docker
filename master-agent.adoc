@@ -1,0 +1,90 @@
+
+=== Instructions ===
+
+Installation steps:
+https://s3-ap-southeast-1.amazonaws.com/puppet.training.sbose.in/10-master-agent-puppet.htm
+
+
+Puppet labs package link:
+https://apt.puppetlabs.com/puppetlabs-release-trusty.deb
+
+
+=== Setting up dev env in agent ===
+
+- `mkdir /home/projects/dockerfiles`
+- Install Django `sudo apt-get install python-django`
+- Create Django project `django-admin startproject mysite`
+
+
+
+=== Install docker module ===
+`sudo  puppet module install garethr/docker --target-dir=/etc/puppet/modules`
+
+
+=== Write manifest to install docker ===
+
+```
+node default{
+     file {'/tmp/mastersetupccess':                                   # resource type file and filename
+       ensure  => present,                                               # make sure it exists
+       mode    => 0644,                                                  # file permissions
+       content => "Here is my Public IP Address: ${ipaddress_eth0}.\n",  # note the ipaddress_eth0 fact
+     }
+     include 'docker'
+}
+```
+
+
+=== Test on agent ===
+
+- `sudo puppet agent -t`
+- `sudo docker ps`
+
+=== Write Docker on master to create image and run container ===
+
+- `sudo mkdir -p /etc/puppet/modules/helloworld/manifests /etc/puppet/modules/helloworld/files`
+- `vim /etc/puppet/modules/helloworld/files/Dockerfile-django`
+
+```
+FROM ubuntu
+RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+
+RUN apt-get -y update
+RUN apt-get -y  install python-django
+RUN apt-get -y install python-pip
+
+RUN mkdir -p /home/projects
+ADD mysite /home/projects/mysite
+
+EXPOSE 8080
+
+CMD ['python /home/projects/mysite/manage.py runserver 0.0.0.0:8080' ]
+```
+
+- `sudo vim /etc/puppet/manifests/site.pp`
+
+```
+node default{
+     file {'/tmp/mastersetupccess':                                   # resource type file and filename
+       ensure  => present,                                               # make sure it exists
+       mode    => 0644,                                                  # file permissions
+       content => "Here is my Public IP Address: ${ipaddress_eth0}.\n",  # note the ipaddress_eth0 fact
+     }
+     include 'docker'
+     docker::image { 'sbose-puppet-django':
+         docker_dir => '/home/ubuntu/dockerfiles',
+         subscribe => File['/home/ubuntu/dockerfiles/Dockerfile']
+     }
+     docker::run{'mysite':
+         command   => 'python /home/projects/mysite/manage.py runserver 0.0.0.0:8080',
+         ports     => [ '8080:8080'] ,
+
+         image => 'sbose-puppet-django',
+
+     }
+     file { "/home/ubuntu/dockerfiles/Dockerfile" :
+        ensure => 'present',
+        source => "puppet:///modules/helloworld/Dockerfile-django"
+     }
+}
+```
